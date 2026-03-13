@@ -128,10 +128,14 @@
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
+let DPR = window.devicePixelRatio || 1;
 let W = window.innerWidth;
 let H = window.innerHeight;
-canvas.width = W;
-canvas.height = H;
+canvas.width = W * DPR;
+canvas.height = H * DPR;
+canvas.style.width = W + 'px';
+canvas.style.height = H + 'px';
+ctx.scale(DPR, DPR);
 
 const toggleBtn = document.getElementById('toggle');
 const controlsEl = document.getElementById('controls');
@@ -144,12 +148,14 @@ toggleBtn.addEventListener('click', (e) => {
 let visible = [];
 
 function fitCanvas() {
+  DPR = window.devicePixelRatio || 1;
   W = window.innerWidth;
   H = window.innerHeight;
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
   canvas.style.width = W + 'px';
   canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   if (visible.length > 0) computeTargets();
 }
 fitCanvas();
@@ -182,15 +188,28 @@ const REF_SIZE = 500;
 const FONT_FAMILY = '"Arial Black", "Helvetica Neue", Impact, sans-serif';
 const glyphCache = {};
 
+// Measure using an offscreen canvas so it's never affected by DPR/resize
+const offCanvas = document.createElement('canvas');
+offCanvas.width = 1000;
+offCanvas.height = 1000;
+const offCtx = offCanvas.getContext('2d');
+
 function measureGlyph(ch) {
-  ctx.font = `900 ${REF_SIZE}px ${FONT_FAMILY}`;
-  ctx.textBaseline = 'alphabetic';
-  const m = ctx.measureText(ch);
+  offCtx.font = `900 ${REF_SIZE}px ${FONT_FAMILY}`;
+  offCtx.textBaseline = 'alphabetic';
+  const m = offCtx.measureText(ch);
+
+  // actualBoundingBox is well-supported now but fallback just in case
+  const w = (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) || m.width || REF_SIZE * 0.6;
+  const asc = m.actualBoundingBoxAscent || REF_SIZE * 0.7;
+  const desc = m.actualBoundingBoxDescent || REF_SIZE * 0.1;
+  const left = m.actualBoundingBoxLeft || 0;
+
   return {
-    width: m.actualBoundingBoxLeft + m.actualBoundingBoxRight || REF_SIZE * 0.6,
-    height: m.actualBoundingBoxAscent + m.actualBoundingBoxDescent || REF_SIZE * 0.8,
-    left: m.actualBoundingBoxLeft || 0,
-    ascent: m.actualBoundingBoxAscent || REF_SIZE * 0.7
+    width: w,
+    height: asc + desc,
+    left: left,
+    ascent: asc
   };
 }
 
