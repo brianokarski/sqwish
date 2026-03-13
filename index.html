@@ -185,8 +185,36 @@ buildSwatches('bgSwatches', PALETTES.bg, BG, c => BG = c);
 buildSwatches('fgSwatches', PALETTES.fg, FG, c => FG = c);
 
 const FONT_FAMILY = '"Arial Black", "Helvetica Neue", Impact, sans-serif';
-// Cap height ratio for these fonts — how much of fontSize is the uppercase height
 const CAP_RATIO = 0.73;
+
+// Global persistence via jsonblob
+const BLOB_ID = '019ce891-1917-7f29-bfac-e91f2bd4ec64';
+const BLOB_URL = `https://jsonblob.com/api/jsonBlob/${BLOB_ID}`;
+
+async function loadText() {
+  try {
+    const res = await fetch(BLOB_URL);
+    const data = await res.json();
+    if (data.text) {
+      document.getElementById('textInput').value = data.text;
+      start();
+    }
+  } catch (e) {}
+}
+
+let saveTimeout;
+function saveText(text) {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      await fetch(BLOB_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+    } catch (e) {}
+  }, 500);
+}
 
 let allChars = [];
 let words = [];
@@ -326,13 +354,17 @@ function start() {
 
 start();
 requestAnimationFrame(draw);
+loadText();
 
 document.body.addEventListener('click', (e) => {
   if (e.target.closest('#controls') || e.target.closest('#toggle')) return;
   start();
 });
 
-document.getElementById('textInput').addEventListener('input', () => start());
+document.getElementById('textInput').addEventListener('input', (e) => {
+  saveText(e.target.value);
+  start();
+});
 document.getElementById('speed').addEventListener('input', e => {
   addInterval = parseInt(e.target.value);
   document.getElementById('speedVal').textContent = addInterval;
