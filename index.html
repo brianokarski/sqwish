@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQWISH</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  canvas { display: block; }
+
+  #toggle {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px;
+    color: #fff;
+    font: 16px system-ui;
+    cursor: pointer;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 0.15s;
+  }
+  #toggle:hover { background: rgba(255,255,255,0.2); }
+
+  #controls {
+    position: fixed;
+    top: 52px;
+    right: 12px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    color: #fff;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    font-size: 12px;
+    font-family: -apple-system, system-ui, sans-serif;
+    z-index: 10;
+    min-width: 200px;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #controls.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px);
+  }
+  #controls label {
+    display: block;
+    margin-bottom: 3px;
+    color: rgba(255,255,255,0.5);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  #controls input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #fff;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    margin-bottom: 12px;
+    outline: none;
+  }
+  #controls input[type="text"]:focus {
+    border-color: rgba(255,255,255,0.3);
+  }
+  #controls input[type="range"] {
+    width: 100%;
+    margin-bottom: 12px;
+    accent-color: #fff;
+  }
+  #controls .swatches { display: flex; gap: 6px; margin-bottom: 14px; }
+  #controls .swatch {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  #controls .swatch:hover { border-color: rgba(255,255,255,0.4); }
+  #controls .swatch.active { border-color: #fff; }
+  .divider {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 12px 0;
+  }
+</style>
+</head>
+<body>
+
+<button id="toggle">+</button>
+
+<div id="controls" class="hidden">
+  <label>Text</label>
+  <input type="text" id="textInput" value="DON'T ASK ME 4 SHIT" />
+  <label>Speed <span id="speedVal">300</span>ms</label>
+  <input type="range" id="speed" min="30" max="1000" step="10" value="300" />
+  <div class="divider"></div>
+  <label>Background</label>
+  <div class="swatches" id="bgSwatches"></div>
+  <label>Foreground</label>
+  <div class="swatches" id="fgSwatches"></div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W = window.innerWidth;
+let H = window.innerHeight;
+canvas.width = W;
+canvas.height = H;
+
+const toggleBtn = document.getElementById('toggle');
+const controlsEl = document.getElementById('controls');
+toggleBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const hidden = controlsEl.classList.toggle('hidden');
+  toggleBtn.textContent = hidden ? '+' : '-';
+});
+
+let visible = [];
+
+function fitCanvas() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  if (visible.length > 0) computeTargets();
+}
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
+
+const PALETTES = {
+  bg: [[0,0,0],[0,95,255],[255,30,30],[255,200,0],[20,200,80],[255,255,255]],
+  fg: [[255,255,255],[0,0,0],[255,30,30],[0,95,255],[255,200,0]]
+};
+
+let BG = [255, 30, 30];
+let FG = [255, 255, 255];
+let addInterval = 300;
+
+function buildSwatches(id, colors, current, setter) {
+  const container = document.getElementById(id);
+  container.innerHTML = '';
+  colors.forEach(c => {
+    const el = document.createElement('div');
+    el.className = 'swatch' + (c.join(',') === current.join(',') ? ' active' : '');
+    el.style.background = `rgb(${c.join(',')})`;
+    el.onclick = (e) => { e.stopPropagation(); setter(c); buildSwatches(id, colors, c, setter); };
+    container.appendChild(el);
+  });
+}
+buildSwatches('bgSwatches', PALETTES.bg, BG, c => BG = c);
+buildSwatches('fgSwatches', PALETTES.fg, FG, c => FG = c);
+
+const REF_SIZE = 500;
+const FONT_FAMILY = '"Arial Black", "Helvetica Neue", Impact, sans-serif';
+const glyphCache = {};
+
+function measureGlyph(ch) {
+  ctx.font = `900 ${REF_SIZE}px ${FONT_FAMILY}`;
+  ctx.textBaseline = 'alphabetic';
+  const m = ctx.measureText(ch);
+  return {
+    width: m.actualBoundingBoxLeft + m.actualBoundingBoxRight || REF_SIZE * 0.6,
+    height: m.actualBoundingBoxAscent + m.actualBoundingBoxDescent || REF_SIZE * 0.8,
+    left: m.actualBoundingBoxLeft || 0,
+    ascent: m.actualBoundingBoxAscent || REF_SIZE * 0.7
+  };
+}
+
+function getGlyph(ch) {
+  if (!glyphCache[ch]) glyphCache[ch] = measureGlyph(ch);
+  return glyphCache[ch];
+}
+
+let allChars = [];
+let words = [];
+let charWidthWeights = [];
+let addIndex = 0;
+let lastAddTime = 0;
+
+function getWords() {
+  const text = document.getElementById('textInput').value.toUpperCase();
+  words = text.split(/\s+/).filter(w => w.length > 0);
+  allChars = [];
+  charWidthWeights = [];
+  for (const word of words) {
+    for (const ch of word) {
+      allChars.push(ch);
+      getGlyph(ch);
+      const isPunct = /^[''",.:;!]$/.test(ch);
+      charWidthWeights.push(isPunct ? 0.25 : 0.4 + Math.random() * 1.6);
+    }
+  }
+}
+
+function computeLayout(count) {
+  const layout = [];
+  let remaining = count;
+  let globalIdx = 0;
+  for (const word of words) {
+    if (remaining <= 0) break;
+    const rowChars = [];
+    for (const ch of word) {
+      if (remaining <= 0) break;
+      rowChars.push({ ch, globalIdx });
+      globalIdx++;
+      remaining--;
+    }
+    if (rowChars.length > 0) layout.push(rowChars);
+  }
+  return layout;
+}
+
+function computeTargets() {
+  const count = visible.length;
+  if (count === 0) return;
+
+  const layout = computeLayout(count);
+  const numRows = layout.length;
+  const rowH = H / numRows;
+
+  for (let r = 0; r < numRows; r++) {
+    const row = layout[r];
+    let totalWeight = 0;
+    for (const c of row) totalWeight += charWidthWeights[c.globalIdx];
+    const unitW = W / totalWeight;
+
+    let x = 0;
+    for (const c of row) {
+      const cellW = unitW * charWidthWeights[c.globalIdx];
+      visible[c.globalIdx].tx = x;
+      visible[c.globalIdx].ty = r * rowH;
+      visible[c.globalIdx].tw = cellW;
+      visible[c.globalIdx].th = rowH;
+      x += cellW;
+    }
+  }
+}
+
+function addNext(now) {
+  if (addIndex >= allChars.length) return false;
+
+  const ch = allChars[addIndex];
+  visible.push({
+    ch,
+    x: W / 2, y: H / 2,
+    w: 0, h: 0,
+    tx: 0, ty: 0, tw: 0, th: 0
+  });
+  addIndex++;
+
+  computeTargets();
+  return true;
+}
+
+const LERP = 0.18;
+
+function draw(now) {
+  if (now - lastAddTime >= addInterval) {
+    if (!addNext(now)) {
+      if (now - lastAddTime >= addInterval + 2000) {
+        start();
+      }
+    } else {
+      lastAddTime = now;
+    }
+  }
+
+  ctx.fillStyle = `rgb(${BG.join(',')})`;
+  ctx.fillRect(0, 0, W, H);
+
+  for (const cell of visible) {
+    cell.x += (cell.tx - cell.x) * LERP;
+    cell.y += (cell.ty - cell.y) * LERP;
+    cell.w += (cell.tw - cell.w) * LERP;
+    cell.h += (cell.th - cell.h) * LERP;
+
+    if (cell.w < 1 || cell.h < 1) continue;
+
+    const g = getGlyph(cell.ch);
+    if (g.width === 0 || g.height === 0) continue;
+
+    const isPunct = /^[''",.:;!]$/.test(cell.ch);
+    const drawH = isPunct ? cell.h * 0.3 : cell.h;
+
+    const sx = cell.w / g.width;
+    const sy = drawH / g.height;
+
+    ctx.save();
+    ctx.translate(cell.x, cell.y);
+    ctx.scale(sx, sy);
+    ctx.font = `900 ${REF_SIZE}px ${FONT_FAMILY}`;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = `rgb(${FG.join(',')})`;
+    ctx.fillText(cell.ch, g.left, g.ascent);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(draw);
+}
+
+function start() {
+  getWords();
+  visible = [];
+  addIndex = 0;
+  lastAddTime = performance.now();
+}
+
+start();
+requestAnimationFrame(draw);
+
+document.body.addEventListener('click', (e) => {
+  if (e.target.closest('#controls') || e.target.closest('#toggle')) return;
+  start();
+});
+
+document.getElementById('textInput').addEventListener('input', () => start());
+document.getElementById('speed').addEventListener('input', e => {
+  addInterval = parseInt(e.target.value);
+  document.getElementById('speedVal').textContent = addInterval;
+});
+</script>
+</body>
+</html>
