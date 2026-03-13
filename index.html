@@ -184,39 +184,9 @@ function buildSwatches(id, colors, current, setter) {
 buildSwatches('bgSwatches', PALETTES.bg, BG, c => BG = c);
 buildSwatches('fgSwatches', PALETTES.fg, FG, c => FG = c);
 
-const REF_SIZE = 500;
 const FONT_FAMILY = '"Arial Black", "Helvetica Neue", Impact, sans-serif';
-const glyphCache = {};
-
-// Measure using an offscreen canvas so it's never affected by DPR/resize
-const offCanvas = document.createElement('canvas');
-offCanvas.width = 1000;
-offCanvas.height = 1000;
-const offCtx = offCanvas.getContext('2d');
-
-function measureGlyph(ch) {
-  offCtx.font = `900 ${REF_SIZE}px ${FONT_FAMILY}`;
-  offCtx.textBaseline = 'alphabetic';
-  const m = offCtx.measureText(ch);
-
-  // actualBoundingBox is well-supported now but fallback just in case
-  const w = (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) || m.width || REF_SIZE * 0.6;
-  const asc = m.actualBoundingBoxAscent || REF_SIZE * 0.7;
-  const desc = m.actualBoundingBoxDescent || REF_SIZE * 0.1;
-  const left = m.actualBoundingBoxLeft || 0;
-
-  return {
-    width: w,
-    height: asc + desc,
-    left: left,
-    ascent: asc
-  };
-}
-
-function getGlyph(ch) {
-  if (!glyphCache[ch]) glyphCache[ch] = measureGlyph(ch);
-  return glyphCache[ch];
-}
+// Cap height ratio for these fonts — how much of fontSize is the uppercase height
+const CAP_RATIO = 0.73;
 
 let allChars = [];
 let words = [];
@@ -232,7 +202,6 @@ function getWords() {
   for (const word of words) {
     for (const ch of word) {
       allChars.push(ch);
-      getGlyph(ch);
       const isPunct = /^[''",.:;!]$/.test(ch);
       charWidthWeights.push(isPunct ? 0.25 : 0.4 + Math.random() * 1.6);
     }
@@ -323,22 +292,25 @@ function draw(now) {
 
     if (cell.w < 1 || cell.h < 1) continue;
 
-    const g = getGlyph(cell.ch);
-    if (g.width === 0 || g.height === 0) continue;
-
     const isPunct = /^[''",.:;!]$/.test(cell.ch);
     const drawH = isPunct ? cell.h * 0.3 : cell.h;
 
-    const sx = cell.w / g.width;
-    const sy = drawH / g.height;
+    // Compute font size so cap height fills drawH
+    const fontSize = drawH / CAP_RATIO;
 
     ctx.save();
-    ctx.translate(cell.x, cell.y);
-    ctx.scale(sx, sy);
-    ctx.font = `900 ${REF_SIZE}px ${FONT_FAMILY}`;
+    ctx.font = `900 ${fontSize}px ${FONT_FAMILY}`;
     ctx.textBaseline = 'alphabetic';
+
+    // Measure width at this font size, then scale X to fill cell width
+    const measured = ctx.measureText(cell.ch);
+    const textW = measured.width;
+    const sx = cell.w / textW;
+
+    ctx.translate(cell.x, cell.y + drawH);
+    ctx.scale(sx, 1);
     ctx.fillStyle = `rgb(${FG.join(',')})`;
-    ctx.fillText(cell.ch, g.left, g.ascent);
+    ctx.fillText(cell.ch, 0, 0);
     ctx.restore();
   }
 
